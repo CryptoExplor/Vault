@@ -154,19 +154,12 @@
             <div class="flex justify-between items-center mb-6 flex-wrap gap-4">
                 <h2 class="text-2xl font-bold text-purple-600 dark:text-purple-400">My Passwords</h2>
                 <div class="flex space-x-2">
-<div class="flex space-x-2 flex-wrap justify-end gap-2">
-                    <button id="export-passwords" class="px-4 py-2 text-sm bg-purple-500 hover:bg-purple-600 text-white rounded-full shadow transition-colors">
-                        <i class="fas fa-file-export"></i> Export
-                    </button>
-                    <button id="import-passwords" class="px-4 py-2 text-sm bg-indigo-500 hover:bg-indigo-600 text-white rounded-full shadow transition-colors">
-                        <i class="fas fa-file-import"></i> Import
-                    </button>
-                    <input type="file" id="import-passwords-file" accept=".json" class="hidden">
                     <select id="passwords-filter-tags" onchange="selectedTags = this.value ? [this.value] : []; updateDisplay(document.getElementById('passwords-search-input').value);" class="px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm">
                         <option value="">All Tags</option>
                     </select>
                     <input type="text" id="passwords-search-input" onkeyup="clearTimeout(searchTimeout); searchTimeout = setTimeout(() => updateDisplay(this.value), 300);" placeholder="Search passwords..." class="px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm">
                 </div>
+            </div>
             <div id="passwords-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sortable-container">
                 <!-- Passwords will be dynamically inserted here -->
             </div>
@@ -737,98 +730,7 @@
         const passwordSet = localStorage.getItem('master_password_set');
         if (passwordSet) { document.getElementById('set-password-screen').classList.add('hidden'); document.getElementById('auth-password-screen').classList.remove('hidden'); }
         document.getElementById('theme-toggle').addEventListener('click', () => { const currentTheme = localStorage.getItem(THEME_KEY); applyTheme(currentTheme !== 'dark'); });
-// Password Export/Import Event Listeners
-        document.getElementById('export-passwords').addEventListener('click', exportPasswords);
-        document.getElementById('import-passwords').addEventListener('click', () => {
-            document.getElementById('import-passwords-file').click();
-        });
-        document.getElementById('import-passwords-file').addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                importPasswords(e.target.files[0]);
-                e.target.value = ''; // reset input
-            }
-        });
     });
-// Password Export/Import Functions
-    async function exportPasswords() {
-        const passwords = JSON.parse(localStorage.getItem('passwords') || '[]');
-
-        if (!passwords.length) {
-            showToast('No passwords to export!', 'error');
-            return;
-        }
-
-        if (!window.masterKey) {
-            showToast('Unlock with master password first!', 'error');
-            return;
-        }
-
-        const encoder = new TextEncoder();
-        const data = encoder.encode(JSON.stringify(passwords));
-
-        const iv = crypto.getRandomValues(new Uint8Array(12));
-
-        const encrypted = await crypto.subtle.encrypt(
-            { name: 'AES-GCM', iv },
-            window.masterKey,
-            data
-        );
-
-        const exportPayload = {
-            iv: Array.from(iv),
-            data: Array.from(new Uint8Array(encrypted))
-        };
-
-        const blob = new Blob([JSON.stringify(exportPayload)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'passwords-encrypted.json';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        showToast('Passwords exported (encrypted)!', 'success');
-    }
-
-    async function importPasswords(file) {
-        if (!window.masterKey) {
-            showToast('Unlock with master password first!', 'error');
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            try {
-                const payload = JSON.parse(e.target.result);
-
-                const iv = new Uint8Array(payload.iv);
-                const encryptedData = new Uint8Array(payload.data);
-
-                const decrypted = await crypto.subtle.decrypt(
-                    { name: 'AES-GCM', iv },
-                    window.masterKey,
-                    encryptedData
-                );
-
-                const decoder = new TextDecoder();
-                const passwords = JSON.parse(decoder.decode(decrypted));
-
-                // Merge into localStorage
-                const existing = JSON.parse(localStorage.getItem('passwords') || '[]');
-                const merged = [...existing, ...passwords];
-                localStorage.setItem('passwords', JSON.stringify(merged));
-
-                renderPasswords(); // refresh UI
-                showToast('Passwords imported successfully!', 'success');
-            } catch (err) {
-                console.error(err);
-                showToast('Failed to import passwords (wrong key or file)', 'error');
-            }
-        };
-        reader.readAsText(file);
-    }
 </script>
 </body>
 </html>
