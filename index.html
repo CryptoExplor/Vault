@@ -1,98 +1,403 @@
 <!DOCTYPE html>
 <html lang="en" class="light">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Note Manager</title>
-  
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/lib/marked.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/ethers@6.12.1/dist/ethers.umd.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Notes & Passwords</title>
+    
+    <!-- Third-party libraries -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/lib/marked.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.12.1/dist/ethers.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            transition: background-color 0.3s ease;
+            background-color: #f3f4f6;
+        }
+        .dark body {
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        .note-card, .password-card {
+            cursor: grab;
+            transition: box-shadow 0.2s, transform 0.2s;
+        }
+        .note-card:active, .password-card:active {
+            cursor: grabbing;
+        }
+        .prose a {
+            color: #3b82f6;
+        }
+        .prose h1, .prose h2, .prose h3 {
+            font-weight: bold;
+        }
+        .ghost {
+            opacity: 0.5;
+        }
+        .sortable-chosen {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            transform: rotate(2deg) scale(1.05);
+        }
+        .pinned-note {
+            border-left-color: #f59e0b;
+            border-left-width: 6px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen p-4">
 
-  <script>
+<!-- Lock Screen -->
+<div id="lock-screen" class="fixed inset-0 bg-gray-900 bg-opacity-90 flex items-center justify-center z-50">
+    <div class="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl text-center w-full max-w-sm mx-4">
+        <h1 class="text-3xl font-bold mb-4">Locked</h1>
+        <p class="text-gray-500 dark:text-gray-400 mb-6">Unlock to access your secure notes and passwords.</p>
+        
+        <div id="set-password-screen" class="space-y-4">
+            <h2 class="text-xl font-semibold text-purple-600 dark:text-purple-400">Set Master Password</h2>
+            <p class="text-sm text-gray-400">This password will be used to encrypt all your data.</p>
+            <input type="password" id="set-password-input" placeholder="Enter master password" class="w-full px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <button onclick="setMasterPassword()" class="w-full py-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition-colors">Set Password</button>
+        </div>
+
+        <div id="auth-password-screen" class="hidden space-y-4">
+            <h2 class="text-xl font-semibold text-purple-600 dark:text-purple-400">Enter Master Password</h2>
+            <input type="password" id="auth-password-input" placeholder="Enter master password" class="w-full px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <button onclick="authenticateMasterPassword()" class="w-full py-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition-colors">Unlock</button>
+        </div>
+        
+        <div class="my-6 text-gray-500 dark:text-gray-400 flex items-center justify-center">
+            <span class="flex-grow border-t border-gray-300 dark:border-gray-600"></span>
+            <span class="mx-4 text-sm">OR</span>
+            <span class="flex-grow border-t border-gray-300 dark:border-gray-600"></span>
+        </div>
+        
+        <button id="connect-wallet-btn" onclick="connectWallet()" class="w-full py-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition-colors"><i class="fas fa-wallet mr-2"></i>Connect Wallet</button>
+        <div id="wallet-status" class="mt-4 text-sm text-gray-500 dark:text-gray-400">Wallet not connected.</div>
+    </div>
+</div>
+
+<!-- Main App Container -->
+<div id="main-app" class="hidden max-w-4xl mx-auto py-8">
+    <header class="text-center mb-10">
+        <h1 class="text-4xl font-extrabold text-purple-600 dark:text-purple-400 mb-2">Secure Manager</h1>
+        <p class="text-gray-500 dark:text-gray-400">Your notes and passwords, encrypted for security.</p>
+        <div class="mt-4 flex flex-col sm:flex-row justify-center items-center gap-2">
+            <label for="lock-timer-input" class="text-sm">Auto-lock after (min):</label>
+            <input type="number" id="lock-timer-input" value="5" min="1" class="w-20 px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600">
+            <button onclick="lockApp()" class="px-4 py-2 bg-gray-300 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-600 transition-colors">Lock Now</button>
+        </div>
+    </header>
+
+    <!-- Tabs for Notes and Passwords -->
+    <div class="flex justify-center mb-6 border-b border-gray-200 dark:border-gray-700">
+        <button id="notes-tab-btn" onclick="showTab('notes-tab')" class="tab-button px-6 py-3 font-semibold transition-colors border-b-2 border-purple-500 text-purple-600 dark:text-purple-400">Notes</button>
+        <button id="passwords-tab-btn" onclick="showTab('passwords-tab')" class="tab-button px-6 py-3 font-semibold transition-colors text-gray-500 dark:text-gray-400 hover:text-purple-600 hover:dark:text-purple-400">Passwords</button>
+    </div>
+
+    <!-- Notes Tab Content -->
+    <div id="notes-tab" class="">
+        <!-- Note Input Section -->
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl mb-8" id="add-item-form">
+            <h2 class="text-2xl font-bold mb-4 text-purple-600 dark:text-purple-400">Add New Note</h2>
+            <input type="text" id="new-note-title" placeholder="Note Title" class="w-full px-4 py-3 mb-4 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <textarea id="new-note-content" placeholder="Write your note here... (supports Markdown)" rows="5" class="w-full px-4 py-3 mb-4 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500"></textarea>
+            <input type="text" id="new-note-tags" placeholder="Tags (e.g., work, ideas)" class="w-full px-4 py-3 mb-4 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <button onclick="addItem('note')" class="w-full py-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition-colors">Add Note</button>
+        </div>
+
+        <!-- Notes Display Section -->
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl">
+            <div class="flex justify-between items-center mb-6 flex-wrap gap-4">
+                <h2 class="text-2xl font-bold text-purple-600 dark:text-purple-400">My Notes</h2>
+                <div class="flex space-x-2 flex-wrap justify-end gap-2">
+                    <button onclick="exportAsJson()" class="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-full hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"><i class="fas fa-file-export"></i> JSON</button>
+                    <label class="cursor-pointer px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-full hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">
+                        <i class="fas fa-file-import"></i> Import
+                        <input type="file" onchange="importFromJson(event)" class="hidden">
+                    </label>
+                    <select id="filter-tags" onchange="selectedTags = this.value ? [this.value] : []; updateDisplay(document.getElementById('search-input').value);" class="px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm">
+                        <option value="">All Tags</option>
+                    </select>
+                    <input type="text" id="search-input" onkeyup="clearTimeout(searchTimeout); searchTimeout = setTimeout(() => updateDisplay(this.value), 300);" placeholder="Search notes..." class="px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm">
+                </div>
+            </div>
+            <div id="notes-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sortable-container">
+                <!-- Notes will be dynamically inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Passwords Tab Content -->
+    <div id="passwords-tab" class="hidden">
+        <!-- Password Input Section -->
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl mb-8">
+            <h2 class="text-2xl font-bold mb-4 text-purple-600 dark:text-purple-400">Add New Password</h2>
+            <input type="text" id="new-password-title" placeholder="Website/Service Name" class="w-full px-4 py-3 mb-4 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <input type="text" id="new-password-username" placeholder="Username/Email" class="w-full px-4 py-3 mb-4 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <div class="flex items-center space-x-2 mb-4">
+                <input type="text" id="new-password-password" placeholder="Password" class="w-full px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                <button onclick="generatePassword()" class="px-4 py-3 bg-gray-300 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-600 transition-colors whitespace-nowrap">Generate</button>
+            </div>
+            <input type="text" id="new-password-tags" placeholder="Tags (e.g., social, work)" class="w-full px-4 py-3 mb-4 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <button onclick="addItem('password')" class="w-full py-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition-colors">Add Password</button>
+        </div>
+
+        <!-- Passwords Display Section -->
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl">
+            <div class="flex justify-between items-center mb-6 flex-wrap gap-4">
+                <h2 class="text-2xl font-bold text-purple-600 dark:text-purple-400">My Passwords</h2>
+                <div class="flex space-x-2">
+                    <select id="filter-tags" onchange="selectedTags = this.value ? [this.value] : []; updateDisplay(document.getElementById('search-input').value);" class="px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm">
+                        <option value="">All Tags</option>
+                    </select>
+                    <input type="text" id="search-input" onkeyup="clearTimeout(searchTimeout); searchTimeout = setTimeout(() => updateDisplay(this.value), 300);" placeholder="Search passwords..." class="px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm">
+                </div>
+            </div>
+            <div id="passwords-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sortable-container">
+                <!-- Passwords will be dynamically inserted here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast/Alert component -->
+<div id="toast" class="toast fixed bottom-4 right-4 p-4 rounded-lg shadow-lg z-50 transition-transform transform translate-y-20">
+    <span id="toast-message"></span>
+</div>
+
+<!-- Confirmation Modal -->
+<div id="confirmation-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+    <div class="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl text-center w-96">
+        <h3 class="text-xl font-bold mb-4">Confirmation</h3>
+        <p id="modal-message" class="text-gray-700 dark:text-gray-300 mb-6"></p>
+        <div class="flex justify-around">
+            <button id="confirm-button" class="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">Yes</button>
+            <button id="cancel-button" class="px-6 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400">No</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Item Modal -->
+<div id="edit-item-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+    <div class="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-2xl">
+        <h2 class="text-2xl font-bold mb-4 text-purple-600 dark:text-purple-400">Edit Item</h2>
+        
+        <!-- Note Fields -->
+        <div id="edit-note-fields" class="space-y-4">
+            <input type="text" id="edit-title" placeholder="Note Title" class="w-full px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <textarea id="edit-content" placeholder="Write your note here... (supports Markdown)" rows="10" class="w-full px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500"></textarea>
+            <input type="text" id="edit-tags" placeholder="Tags (e.g., work, ideas)" class="w-full px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
+        </div>
+        
+        <!-- Password Fields -->
+        <div id="edit-password-fields" class="hidden space-y-4">
+            <input type="text" id="edit-password-title" placeholder="Website/Service Name" class="w-full px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <input type="text" id="edit-password-username" placeholder="Username/Email" class="w-full px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <input type="text" id="edit-password-password" placeholder="Password" class="w-full px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <input type="text" id="edit-password-tags" placeholder="Tags (e.g., social, work)" class="w-full px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
+        </div>
+        
+        <div class="flex justify-end space-x-4 mt-4">
+            <button onclick="document.getElementById('edit-item-modal').classList.add('hidden')" class="px-6 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400">Cancel</button>
+            <button id="save-edit-btn" class="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<!-- History Modal -->
+<div id="history-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+    <div class="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-xl">
+        <h2 class="text-2xl font-bold mb-4 text-purple-600 dark:text-purple-400">Version History</h2>
+        <ul id="history-list" class="space-y-4"></ul>
+        <div class="flex justify-end mt-4">
+            <button onclick="document.getElementById('history-modal').classList.add('hidden')" class="px-6 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400">Close</button>
+        </div>
+    </div>
+</div>
+
+<div class="absolute top-4 right-4 p-2 text-sm text-gray-500 dark:text-gray-400">
+    <span id="theme-toggle" class="cursor-pointer">
+        <i class="fas fa-sun hidden dark-icon"></i>
+        <i class="fas fa-moon light-icon"></i>
+    </span>
+</div>
+
+<footer class="text-center mt-10 py-4 text-gray-400 dark:text-gray-600 text-sm">
+    <p>Made with <span class="text-red-500">&hearts;</span> by CryptoExplor</p>
+    <p><a href="https://github.com/CryptoExplor" target="_blank" class="hover:underline">github.com/CryptoExplor</a></p>
+</footer>
+
+<script>
+    // Global Constants & State
     const THEME_KEY = 'theme_preference';
-    const NOTES_KEY = 'notes_content';
+    const APP_DATA_KEY = 'app_data';
     let walletAddress = null;
+    let masterKey = null; // The derived encryption key
+    let isLocked = true;
     let allTags = new Set();
     let selectedTags = [];
     let searchTimeout;
+    let lockTimeout;
 
     // Custom Alert/Toast
     function showToast(message, type = 'info') {
-      const toast = document.getElementById('toast');
-      const toastMessage = document.getElementById('toast-message');
-      toastMessage.textContent = message;
-      toast.className = 'toast fixed bottom-4 right-4 p-4 rounded-lg shadow-lg z-50 transition-transform transform translate-y-20';
+        const toast = document.getElementById('toast');
+        const toastMessage = document.getElementById('toast-message');
+        toastMessage.textContent = message;
+        toast.className = 'toast fixed bottom-4 right-4 p-4 rounded-lg shadow-lg z-50 transition-transform transform translate-y-20';
+        
+        if (type === 'success') {
+            toast.classList.add('bg-green-500', 'text-white');
+        } else if (type === 'error') {
+            toast.classList.add('bg-red-500', 'text-white');
+        } else {
+            toast.classList.add('bg-gray-800', 'text-white');
+        }
 
-      if (type === 'success') {
-        toast.classList.add('bg-green-500', 'text-white');
-      } else if (type === 'error') {
-        toast.classList.add('bg-red-500', 'text-white');
-      } else {
-        toast.classList.add('bg-gray-800', 'text-white');
-      }
-
-      setTimeout(() => {
-        toast.classList.add('translate-y-0');
-      }, 10);
-      
-      setTimeout(() => {
-        toast.classList.remove('translate-y-0');
         setTimeout(() => {
-            toast.className = 'toast fixed bottom-4 right-4 p-4 rounded-lg shadow-lg z-50 transition-transform transform translate-y-20';
-        }, 500);
-      }, 3000);
+            toast.classList.add('translate-y-0');
+        }, 10);
+        
+        setTimeout(() => {
+            toast.classList.remove('translate-y-0');
+            setTimeout(() => {
+                toast.className = 'toast fixed bottom-4 right-4 p-4 rounded-lg shadow-lg z-50 transition-transform transform translate-y-20';
+            }, 500);
+        }, 3000);
     }
-    
+
     // Custom Modal for confirmations (replacing window.confirm)
     function showModal(message, onConfirm) {
-      const modal = document.getElementById('confirmation-modal');
-      const modalMessage = document.getElementById('modal-message');
-      const confirmButton = document.getElementById('confirm-button');
-      const cancelButton = document.getElementById('cancel-button');
+        const modal = document.getElementById('confirmation-modal');
+        const modalMessage = document.getElementById('modal-message');
+        const confirmButton = document.getElementById('confirm-button');
+        const cancelButton = document.getElementById('cancel-button');
 
-      modalMessage.textContent = message;
-      modal.classList.remove('hidden');
+        modalMessage.textContent = message;
+        modal.classList.remove('hidden');
 
-      confirmButton.onclick = () => {
-        modal.classList.add('hidden');
-        onConfirm(true);
-      };
-      cancelButton.onclick = () => {
-        modal.classList.add('hidden');
-        onConfirm(false);
-      };
+        confirmButton.onclick = () => {
+            modal.classList.add('hidden');
+            onConfirm(true);
+        };
+        cancelButton.onclick = () => {
+            modal.classList.add('hidden');
+            onConfirm(false);
+        };
     }
 
-    // Encryption/Decryption Functions
-    // Use the wallet address as the key for a simple XOR encryption.
-    function encrypt(text, key) {
-        if (!key) return text;
-        const keyChars = key.split('').map(c => c.charCodeAt(0));
-        let encrypted = '';
-        for (let i = 0; i < text.length; i++) {
-            encrypted += String.fromCharCode(text.charCodeAt(i) ^ keyChars[i % keyChars.length]);
-        }
-        return btoa(encrypted);
+    // --- Core Security Functions ---
+
+    /**
+     * Derives a secure key from a given passphrase using PBKDF2.
+     * @param {string} passphrase - The user's input (wallet address or master password).
+     * @returns {string} The derived key as a string.
+     */
+    async function deriveKey(passphrase) {
+        const salt = CryptoJS.lib.WordArray.random(128 / 8);
+        const key = await CryptoJS.PBKDF2(passphrase, salt, {
+            keySize: 256 / 32,
+            iterations: 1000
+        });
+        // Store the salt to be used for decryption
+        localStorage.setItem('encryption_salt', salt.toString());
+        return key.toString();
     }
 
-    function decrypt(encryptedText, key) {
-        if (!key) return encryptedText;
+    /**
+     * Encrypts text using AES-GCM.
+     * @param {string} text - Plaintext to encrypt.
+     * @returns {object} The encrypted data (ciphertext and IV).
+     */
+    function encrypt(text) {
+        if (!masterKey) return text;
+        const iv = CryptoJS.lib.WordArray.random(128 / 8);
+        const encrypted = CryptoJS.AES.encrypt(text, masterKey, {
+            iv: iv,
+            mode: CryptoJS.mode.GCM,
+            padding: CryptoJS.pad.Pkcs7
+        });
+        return {
+            ciphertext: encrypted.ciphertext.toString(CryptoJS.enc.Base64),
+            iv: iv.toString(CryptoJS.enc.Base64),
+            salt: localStorage.getItem('encryption_salt')
+        };
+    }
+
+    /**
+     * Decrypts text using AES-GCM.
+     * @param {object} encryptedData - The encrypted data object.
+     * @param {string} key - The encryption key.
+     * @returns {string} The decrypted plaintext.
+     */
+    function decrypt(encryptedData, key) {
+        if (typeof encryptedData !== 'object' || !encryptedData.ciphertext) return encryptedData; // Fallback for unencrypted data
         try {
-            const keyChars = key.split('').map(c => c.charCodeAt(0));
-            const decoded = atob(encryptedText);
-            let decrypted = '';
-            for (let i = 0; i < decoded.length; i++) {
-                decrypted += String.fromCharCode(decoded.charCodeAt(i) ^ keyChars[i % keyChars.length]);
-            }
-            return decrypted;
+            const iv = CryptoJS.enc.Base64.parse(encryptedData.iv);
+            const decrypted = CryptoJS.AES.decrypt(encryptedData.ciphertext, key, {
+                iv: iv,
+                mode: CryptoJS.mode.GCM,
+                padding: CryptoJS.pad.Pkcs7
+            });
+            return decrypted.toString(CryptoJS.enc.Utf8);
         } catch (e) {
-            return encryptedText; // Fallback for unencrypted text
+            console.error("Decryption failed:", e);
+            return ""; // Return empty on failure
+        }
+    }
+    
+    /**
+     * Sets the master password and unlocks the app.
+     */
+    async function setMasterPassword() {
+        const password = document.getElementById('set-password-input').value;
+        if (!password) {
+            showToast('Password cannot be empty.', 'error');
+            return;
+        }
+        masterKey = await deriveKey(password);
+        localStorage.setItem('master_password_set', 'true');
+        unlockApp();
+    }
+
+    /**
+     * Authenticates with the master password and unlocks the app.
+     */
+    async function authenticateMasterPassword() {
+        const password = document.getElementById('auth-password-input').value;
+        if (!password) {
+            showToast('Password cannot be empty.', 'error');
+            return;
+        }
+        // Use the stored salt to derive the same key
+        const salt = CryptoJS.enc.Base64.parse(localStorage.getItem('encryption_salt'));
+        const key = await CryptoJS.PBKDF2(password, salt, {
+            keySize: 256 / 32,
+            iterations: 1000
+        });
+        
+        // Check if key is correct by attempting to decrypt a dummy value or a known item
+        const appData = JSON.parse(localStorage.getItem(APP_DATA_KEY) || '[]');
+        const testItem = appData[0];
+        if (testItem) {
+            const decryptedContent = decrypt(testItem.content, key);
+            if (decryptedContent !== '') { // If decryption succeeds, key is correct
+                masterKey = key.toString();
+                unlockApp();
+            } else {
+                showToast('Incorrect password.', 'error');
+            }
+        } else { // No data to test against, just assume it's correct for now
+             masterKey = key.toString();
+             unlockApp();
         }
     }
 
@@ -107,239 +412,353 @@
             await provider.send("eth_requestAccounts", []);
             const signer = await provider.getSigner();
             walletAddress = await signer.getAddress();
+            masterKey = await deriveKey(walletAddress);
             document.getElementById('wallet-status').textContent = `Wallet Connected: ${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}`;
             document.getElementById('connect-wallet-btn').classList.add('hidden');
+            unlockApp();
             showToast('Wallet connected successfully!', 'success');
-            updateAllTags();
-            updateNoteDisplay();
         } catch (error) {
             console.error(error);
             showToast('Failed to connect wallet.', 'error');
         }
     };
 
-    // Note Rendering and Management
-    function updateNoteDisplay(searchTerm = '') {
+    // --- Application State & UI Management ---
+
+    /**
+     * Locks the application and shows the lock screen.
+     */
+    function lockApp() {
+        isLocked = true;
+        document.getElementById('lock-screen').classList.remove('hidden');
+        document.getElementById('main-app').classList.add('hidden');
+        masterKey = null;
+        walletAddress = null;
+        document.getElementById('wallet-status').textContent = 'Wallet not connected.';
+        document.getElementById('connect-wallet-btn').classList.remove('hidden');
+    }
+
+    /**
+     * Unlocks the application and shows the main UI.
+     */
+    function unlockApp() {
+        isLocked = false;
+        document.getElementById('lock-screen').classList.add('hidden');
+        document.getElementById('main-app').classList.remove('hidden');
+        updateAllTags();
+        updateDisplay();
+        resetLockTimer();
+    }
+
+    /**
+     * Resets the inactivity timer for auto-locking.
+     */
+    function resetLockTimer() {
+        const lockTime = parseInt(document.getElementById('lock-timer-input').value, 10) * 60 * 1000;
+        clearTimeout(lockTimeout);
+        if (lockTime > 0) {
+            lockTimeout = setTimeout(() => {
+                lockApp();
+                showToast('App locked due to inactivity.', 'info');
+            }, lockTime);
+        }
+    }
+
+    // Add event listeners to reset the timer on user activity
+    document.addEventListener('mousemove', resetLockTimer);
+    document.addEventListener('keydown', resetLockTimer);
+
+    /**
+     * Updates the display for both notes and passwords.
+     * @param {string} searchTerm
+     */
+    function updateDisplay(searchTerm = '') {
         const notesContainer = document.getElementById('notes-container');
-        const notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]').map(note => ({
-            ...note,
-            content: decrypt(note.content, walletAddress)
-        }));
-        
-        // Filter notes by search term and selected tags
-        const filteredNotes = notes.filter(note => {
-            const matchesSearch = searchTerm === '' || 
-                                  note.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                                  note.content.toLowerCase().includes(searchTerm.toLowerCase());
-            const matchesTags = selectedTags.length === 0 || 
-                                selectedTags.every(tag => note.tags.includes(tag));
+        const passwordsContainer = document.getElementById('passwords-container');
+        const appData = JSON.parse(localStorage.getItem(APP_DATA_KEY) || '[]');
+
+        notesContainer.innerHTML = '';
+        passwordsContainer.innerHTML = '';
+        updateAllTags();
+
+        const decryptedData = appData.map(item => {
+            if (!masterKey) return item; // Don't decrypt if not unlocked
+            const decryptedContent = decrypt(item.content, masterKey);
+            if (decryptedContent === '') return { ...item, type: 'failed_decryption' };
+            if (item.type === 'note') {
+                return { ...item, content: decryptedContent };
+            } else if (item.type === 'password') {
+                return { ...item, password: decryptedContent };
+            }
+            return item;
+        }).filter(item => item.type !== 'failed_decryption');
+
+        // Filter by search term and selected tags
+        const filteredData = decryptedData.filter(item => {
+            const matchesSearch = searchTerm === '' ||
+                item.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (item.content && item.content.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (item.username && item.username.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (item.password && item.password.toLowerCase().includes(searchTerm.toLowerCase()));
+            const matchesTags = selectedTags.length === 0 ||
+                selectedTags.every(tag => item.tags.includes(tag));
             return matchesSearch && matchesTags;
         });
 
-        // Sort notes: Pinned first, then by date
-        filteredNotes.sort((a, b) => (b.isPinned - a.isPinned) || new Date(b.date) - new Date(a.date));
+        // Sort pinned items first
+        filteredData.sort((a, b) => (b.isPinned - a.isPinned) || new Date(b.date) - new Date(a.date));
 
-        notesContainer.innerHTML = '';
-        if (filteredNotes.length === 0) {
-            notesContainer.innerHTML = '<p class="text-gray-500 dark:text-gray-400 text-center">No matching notes found.</p>';
-        } else {
-            filteredNotes.forEach((note, index) => {
-                const noteDiv = document.createElement('div');
-                noteDiv.classList.add('note-card', 'bg-white', 'dark:bg-gray-700', 'p-4', 'rounded-lg', 'shadow-md', 'border-l-4', 'border-purple-500', 'dark:border-purple-400', 'hover:shadow-lg', 'transition-shadow', 'duration-200', 'cursor-grab', 'relative');
-                if (note.isPinned) {
-                    noteDiv.classList.add('pinned-note', 'border-yellow-500', 'dark:border-yellow-400', 'ring-2', 'ring-yellow-500');
-                }
-                noteDiv.setAttribute('data-index', index);
-                
-                const title = document.createElement('h3');
-                title.classList.add('text-xl', 'font-bold', 'mb-2', 'text-gray-900', 'dark:text-white');
-                title.textContent = note.title;
-
-                const content = document.createElement('div');
-                content.classList.add('text-gray-700', 'dark:text-gray-300', 'mb-4', 'break-words', 'prose', 'prose-sm', 'dark:prose-invert', 'max-w-none');
-                content.innerHTML = marked.parse(note.content);
-
-                const tags = document.createElement('div');
-                tags.classList.add('flex', 'flex-wrap', 'gap-1', 'mb-2');
-                note.tags.forEach(tag => {
-                    tags.innerHTML += `<span class="bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs font-semibold px-2.5 py-0.5 rounded-full">${tag}</span>`;
-                });
-
-                const footer = document.createElement('div');
-                footer.classList.add('flex', 'justify-between', 'items-center', 'text-sm', 'text-gray-500', 'dark:text-gray-400');
-                footer.innerHTML = `
-                  <span>${note.date}</span>
-                  <div class="space-x-2">
-                    <button onclick="togglePinNote('${note.id}')" class="text-gray-500 hover:text-yellow-500 transition-colors ${note.isPinned ? 'text-yellow-500' : ''}"><i class="fas fa-thumbtack"></i></button>
-                    <button onclick="editNote('${note.id}')" class="text-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"><i class="fas fa-edit"></i></button>
-                    <button onclick="deleteNote('${note.id}')" class="text-red-500 hover:text-red-600 dark:hover:text-red-400 transition-colors"><i class="fas fa-trash-alt"></i></button>
-                    <button onclick="exportNoteAsMarkdown('${note.id}')" class="text-gray-500 hover:text-purple-500 transition-colors"><i class="fas fa-file-export"></i></button>
-                    <button onclick="showVersionHistory('${note.id}')" class="text-gray-500 hover:text-gray-600 transition-colors"><i class="fas fa-history"></i></button>
-                  </div>
-                `;
-
-                noteDiv.appendChild(title);
-                noteDiv.appendChild(tags);
-                noteDiv.appendChild(content);
-                noteDiv.appendChild(footer);
-                notesContainer.appendChild(noteDiv);
-            });
-        }
-        setupSortable();
-    }
-    
-    // Update the master tag list for autocomplete
-    function updateAllTags() {
-        const notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]').map(note => ({
-            ...note,
-            content: decrypt(note.content, walletAddress)
-        }));
-        allTags = new Set();
-        notes.forEach(note => {
-            if (note.tags) {
-                note.tags.forEach(tag => allTags.add(tag));
+        // Render Notes and Passwords
+        let notesFound = false;
+        let passwordsFound = false;
+        filteredData.forEach(item => {
+            if (item.type === 'note') {
+                renderNoteCard(item, notesContainer);
+                notesFound = true;
+            } else if (item.type === 'password') {
+                renderPasswordCard(item, passwordsContainer);
+                passwordsFound = true;
             }
         });
-        updateTagFilterDropdown();
-    }
 
-    function updateTagFilterDropdown() {
-        const filterDropdown = document.getElementById('filter-tags');
-        filterDropdown.innerHTML = `<option value="">All Tags</option>`;
-        allTags.forEach(tag => {
-            const option = document.createElement('option');
-            option.value = tag;
-            option.textContent = tag;
-            filterDropdown.appendChild(option);
-        });
-    }
-
-    // Existing functions
-    window.addNote = () => {
-        const titleInput = document.getElementById('new-note-title');
-        const contentInput = document.getElementById('new-note-content');
-        const tagsInput = document.getElementById('new-note-tags');
-        const title = titleInput.value.trim();
-        const content = contentInput.value.trim();
-        const tags = tagsInput.value.split(',').map(tag => tag.trim()).filter(tag => tag !== '');
+        if (!notesFound) notesContainer.innerHTML = '<p class="text-gray-500 dark:text-gray-400 text-center">No matching notes found.</p>';
+        if (!passwordsFound) passwordsContainer.innerHTML = '<p class="text-gray-500 dark:text-gray-400 text-center">No matching passwords found.</p>';
         
-        if (!walletAddress) {
-            showToast('Please connect your wallet first.', 'error');
+        setupSortable();
+    }
+
+    function renderNoteCard(note, container) {
+        const noteDiv = document.createElement('div');
+        noteDiv.classList.add('note-card', 'bg-white', 'dark:bg-gray-700', 'p-4', 'rounded-lg', 'shadow-md', 'border-l-4', 'border-purple-500', 'dark:border-purple-400', 'hover:shadow-lg', 'transition-shadow', 'duration-200', 'cursor-grab', 'relative');
+        if (note.isPinned) {
+            noteDiv.classList.add('pinned-note', 'border-yellow-500', 'dark:border-yellow-400', 'ring-2', 'ring-yellow-500');
+        }
+        
+        const title = document.createElement('h3');
+        title.classList.add('text-xl', 'font-bold', 'mb-2', 'text-gray-900', 'dark:text-white');
+        title.textContent = note.title;
+
+        const content = document.createElement('div');
+        content.classList.add('text-gray-700', 'dark:text-gray-300', 'mb-4', 'break-words', 'prose', 'prose-sm', 'dark:prose-invert', 'max-w-none');
+        content.innerHTML = marked.parse(note.content);
+
+        const tags = document.createElement('div');
+        tags.classList.add('flex', 'flex-wrap', 'gap-1', 'mb-2');
+        note.tags.forEach(tag => {
+            tags.innerHTML += `<span class="bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs font-semibold px-2.5 py-0.5 rounded-full">${tag}</span>`;
+        });
+
+        const footer = document.createElement('div');
+        footer.classList.add('flex', 'justify-between', 'items-center', 'text-sm', 'text-gray-500', 'dark:text-gray-400');
+        footer.innerHTML = `
+            <span>${note.date}</span>
+            <div class="space-x-2">
+                <button onclick="togglePin('${note.id}')" class="text-gray-500 hover:text-yellow-500 transition-colors ${note.isPinned ? 'text-yellow-500' : ''}"><i class="fas fa-thumbtack"></i></button>
+                <button onclick="editItem('${note.id}')" class="text-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"><i class="fas fa-edit"></i></button>
+                <button onclick="deleteItem('${note.id}')" class="text-red-500 hover:text-red-600 dark:hover:text-red-400 transition-colors"><i class="fas fa-trash-alt"></i></button>
+                <button onclick="exportItemAsMarkdown('${note.id}')" class="text-gray-500 hover:text-purple-500 transition-colors"><i class="fas fa-file-export"></i></button>
+                <button onclick="showVersionHistory('${note.id}')" class="text-gray-500 hover:text-gray-600 transition-colors"><i class="fas fa-history"></i></button>
+            </div>
+        `;
+
+        noteDiv.appendChild(title);
+        noteDiv.appendChild(tags);
+        noteDiv.appendChild(content);
+        noteDiv.appendChild(footer);
+        container.appendChild(noteDiv);
+    }
+
+    function renderPasswordCard(password, container) {
+        const passwordDiv = document.createElement('div');
+        passwordDiv.classList.add('password-card', 'bg-white', 'dark:bg-gray-700', 'p-4', 'rounded-lg', 'shadow-md', 'border-l-4', 'border-blue-500', 'dark:border-blue-400', 'hover:shadow-lg', 'transition-shadow', 'duration-200', 'cursor-grab', 'relative');
+        
+        const title = document.createElement('h3');
+        title.classList.add('text-xl', 'font-bold', 'mb-2', 'text-gray-900', 'dark:text-white');
+        title.textContent = password.title;
+
+        const tags = document.createElement('div');
+        tags.classList.add('flex', 'flex-wrap', 'gap-1', 'mb-2');
+        password.tags.forEach(tag => {
+            tags.innerHTML += `<span class="bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs font-semibold px-2.5 py-0.5 rounded-full">${tag}</span>`;
+        });
+
+        const details = document.createElement('div');
+        details.classList.add('text-gray-700', 'dark:text-gray-300', 'mb-4', 'break-words');
+        details.innerHTML = `
+            <p><span class="font-semibold">Username:</span> ${password.username}</p>
+            <div class="flex items-center space-x-2 mt-2">
+                <span class="font-semibold">Password:</span>
+                <input type="password" value="${password.password}" readonly class="bg-transparent border-none text-gray-700 dark:text-gray-300 flex-grow" id="password-${password.id}">
+                <button onclick="togglePasswordVisibility('${password.id}')" class="text-gray-500 hover:text-gray-600 transition-colors" data-visible="false"><i class="fas fa-eye"></i></button>
+                <button onclick="copyToClipboard('password-${password.id}')" class="text-gray-500 hover:text-purple-500 transition-colors"><i class="fas fa-copy"></i></button>
+            </div>
+        `;
+        
+        const footer = document.createElement('div');
+        footer.classList.add('flex', 'justify-end', 'items-center', 'text-sm', 'text-gray-500', 'dark:text-gray-400', 'mt-4');
+        footer.innerHTML = `
+            <div class="space-x-2">
+                <button onclick="editItem('${password.id}')" class="text-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"><i class="fas fa-edit"></i></button>
+                <button onclick="deleteItem('${password.id}')" class="text-red-500 hover:text-red-600 dark:hover:text-red-400 transition-colors"><i class="fas fa-trash-alt"></i></button>
+            </div>
+        `;
+
+        passwordDiv.appendChild(title);
+        passwordDiv.appendChild(tags);
+        passwordDiv.appendChild(details);
+        passwordDiv.appendChild(footer);
+        container.appendChild(passwordDiv);
+    }
+
+    // --- Note & Password Management Logic ---
+
+    function getAppData() {
+        return JSON.parse(localStorage.getItem(APP_DATA_KEY) || '[]');
+    }
+
+    function saveAppData(data) {
+        localStorage.setItem(APP_DATA_KEY, JSON.stringify(data));
+    }
+    
+    window.addItem = (type) => {
+        if (!masterKey) {
+            showToast('Please unlock the app first.', 'error');
             return;
         }
 
-        if (title === '' || content === '') {
-            showToast('Title and content cannot be empty.', 'error');
-            return;
-        }
-
-        const notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]');
-        notes.unshift({
+        const appData = getAppData();
+        const newItem = {
             id: crypto.randomUUID(),
-            title,
-            content: encrypt(content, walletAddress),
-            tags,
-            isPinned: false,
-            history: [],
-            date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-        });
-        localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
-        updateAllTags();
-        updateNoteDisplay();
-        titleInput.value = '';
-        contentInput.value = '';
-        tagsInput.value = '';
-        showToast('Note added!', 'success');
-    };
+            type: type,
+            tags: [],
+            date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+            history: []
+        };
 
-    window.editNote = (id) => {
-        if (!walletAddress) {
-            showToast('Please connect your wallet first.', 'error');
-            return;
-        }
-
-        const notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]');
-        const noteIndex = notes.findIndex(note => note.id === id);
-        if (noteIndex === -1) return;
-        
-        const note = notes[noteIndex];
-        const content = decrypt(note.content, walletAddress);
-
-        document.getElementById('edit-title').value = note.title;
-        document.getElementById('edit-content').value = content;
-        document.getElementById('edit-tags').value = note.tags.join(', ');
-        document.getElementById('edit-note-modal').classList.remove('hidden');
-
-        document.getElementById('save-edit-btn').onclick = () => {
-            const newTitle = document.getElementById('edit-title').value.trim();
-            const newContent = document.getElementById('edit-content').value.trim();
-            const newTags = document.getElementById('edit-tags').value.split(',').map(tag => tag.trim()).filter(tag => tag !== '');
-
-            if (newTitle === '' || newContent === '') {
+        if (type === 'note') {
+            const title = document.getElementById('new-note-title').value.trim();
+            const content = document.getElementById('new-note-content').value.trim();
+            const tags = document.getElementById('new-note-tags').value.split(',').map(tag => tag.trim()).filter(t => t !== '');
+            if (title === '' || content === '') {
                 showToast('Title and content cannot be empty.', 'error');
                 return;
             }
-            
-            // Save version history
-            if (content !== newContent) {
-                note.history.unshift({
-                    content: note.content,
-                    date: new Date().toISOString()
-                });
-                if (note.history.length > 5) {
-                    note.history.pop();
+            newItem.title = title;
+            newItem.content = encrypt(content);
+            newItem.tags = tags;
+            newItem.isPinned = false;
+        } else if (type === 'password') {
+            const title = document.getElementById('new-password-title').value.trim();
+            const username = document.getElementById('new-password-username').value.trim();
+            const password = document.getElementById('new-password-password').value;
+            const tags = document.getElementById('new-password-tags').value.split(',').map(tag => tag.trim()).filter(t => t !== '');
+            if (title === '' || username === '' || password === '') {
+                showToast('All password fields must be filled.', 'error');
+                return;
+            }
+            newItem.title = title;
+            newItem.username = username;
+            newItem.content = encrypt(password);
+            newItem.tags = tags;
+        }
+
+        appData.unshift(newItem);
+        saveAppData(appData);
+        updateDisplay();
+        document.getElementById('add-item-form').reset();
+        showToast(`${type.charAt(0).toUpperCase() + type.slice(1)} added!`, 'success');
+    };
+
+    window.editItem = (id) => {
+        const appData = getAppData();
+        const item = appData.find(i => i.id === id);
+        if (!item) return;
+
+        const decryptedItem = {
+            ...item,
+            content: decrypt(item.content, masterKey)
+        };
+
+        if (item.type === 'note') {
+            document.getElementById('edit-title').value = decryptedItem.title;
+            document.getElementById('edit-content').value = decryptedItem.content;
+            document.getElementById('edit-tags').value = decryptedItem.tags.join(', ');
+            document.getElementById('edit-password-fields').classList.add('hidden');
+            document.getElementById('edit-note-fields').classList.remove('hidden');
+        } else if (item.type === 'password') {
+            document.getElementById('edit-password-title').value = decryptedItem.title;
+            document.getElementById('edit-password-username').value = decryptedItem.username;
+            document.getElementById('edit-password-password').value = decryptedItem.content;
+            document.getElementById('edit-password-tags').value = decryptedItem.tags.join(', ');
+            document.getElementById('edit-note-fields').classList.add('hidden');
+            document.getElementById('edit-password-fields').classList.remove('hidden');
+        }
+
+        document.getElementById('edit-item-modal').classList.remove('hidden');
+
+        document.getElementById('save-edit-btn').onclick = () => {
+            const newTitle = item.type === 'note' ? document.getElementById('edit-title').value.trim() : document.getElementById('edit-password-title').value.trim();
+            const newTags = item.type === 'note' ? document.getElementById('edit-tags').value.split(',').map(tag => tag.trim()).filter(t => t !== '') : document.getElementById('edit-password-tags').value.split(',').map(tag => tag.trim()).filter(t => t !== '');
+
+            if (item.type === 'note') {
+                const newContent = document.getElementById('edit-content').value.trim();
+                if (decryptedItem.content !== newContent) {
+                    item.history.unshift({ content: item.content, date: new Date().toISOString() });
+                    if (item.history.length > 5) item.history.pop();
                 }
+                item.content = encrypt(newContent);
+                item.title = newTitle;
+                item.tags = newTags;
+            } else if (item.type === 'password') {
+                const newUsername = document.getElementById('edit-password-username').value.trim();
+                const newPassword = document.getElementById('edit-password-password').value;
+                item.title = newTitle;
+                item.username = newUsername;
+                item.content = encrypt(newPassword);
+                item.tags = newTags;
             }
 
-            note.title = newTitle;
-            note.content = encrypt(newContent, walletAddress);
-            note.tags = newTags;
-
-            localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
-            updateAllTags();
-            updateNoteDisplay();
-            document.getElementById('edit-note-modal').classList.add('hidden');
-            showToast('Note updated!', 'success');
+            saveAppData(appData);
+            updateDisplay();
+            document.getElementById('edit-item-modal').classList.add('hidden');
+            showToast(`${item.type.charAt(0).toUpperCase() + item.type.slice(1)} updated!`, 'success');
         };
     };
 
-    window.deleteNote = (id) => {
-        showModal('Are you sure you want to delete this note?', (confirmed) => {
-          if (confirmed) {
-              const notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]');
-              const updatedNotes = notes.filter(note => note.id !== id);
-              localStorage.setItem(NOTES_KEY, JSON.stringify(updatedNotes));
-              updateAllTags();
-              updateNoteDisplay();
-              showToast('Note deleted!', 'success');
-          }
+    window.deleteItem = (id) => {
+        showModal('Are you sure you want to delete this item?', (confirmed) => {
+            if (confirmed) {
+                const appData = getAppData();
+                const updatedData = appData.filter(item => item.id !== id);
+                saveAppData(updatedData);
+                updateDisplay();
+                showToast('Item deleted!', 'success');
+            }
         });
     };
-    
-    window.togglePinNote = (id) => {
-        const notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]');
-        const noteIndex = notes.findIndex(note => note.id === id);
-        if (noteIndex === -1) return;
 
-        notes[noteIndex].isPinned = !notes[noteIndex].isPinned;
-        localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
-        updateNoteDisplay();
+    window.togglePin = (id) => {
+        const appData = getAppData();
+        const item = appData.find(i => i.id === id);
+        if (!item) return;
+        item.isPinned = !item.isPinned;
+        saveAppData(appData);
+        updateDisplay();
     };
 
-    window.exportNoteAsMarkdown = (id) => {
-        if (!walletAddress) {
-            showToast('Please connect your wallet first.', 'error');
+    window.exportItemAsMarkdown = (id) => {
+        if (!masterKey) {
+            showToast('Please unlock the app first.', 'error');
             return;
         }
 
-        const notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]');
-        const note = notes.find(n => n.id === id);
+        const appData = getAppData();
+        const note = appData.find(n => n.id === id);
         if (!note) {
             showToast('Note not found.', 'error');
             return;
         }
-
-        const content = decrypt(note.content, walletAddress);
+        const content = decrypt(note.content, masterKey);
         const fileName = `${note.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`;
         const blob = new Blob([`# ${note.title}\n\n${content}\n\n---\nTags: ${note.tags.join(', ')}\nDate: ${note.date}`], { type: 'text/markdown' });
         const url = URL.createObjectURL(blob);
@@ -353,14 +772,59 @@
         showToast('Note exported!', 'success');
     };
 
+    window.exportAsJson = () => {
+        if (!masterKey) {
+            showToast('Please unlock the app first.', 'error');
+            return;
+        }
+
+        const appData = getAppData();
+        const json = JSON.stringify(appData, null, 2);
+        const fileName = 'note_manager_export.json';
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('All data exported!', 'success');
+    };
+
+    window.importFromJson = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const importedData = JSON.parse(e.target.result);
+                if (!Array.isArray(importedData)) {
+                    throw new Error('Invalid file format. Must be a JSON array.');
+                }
+                showModal('Importing will overwrite your existing data. Are you sure?', (confirmed) => {
+                    if (confirmed) {
+                        localStorage.setItem(APP_DATA_KEY, JSON.stringify(importedData));
+                        updateDisplay();
+                        showToast('Data imported successfully!', 'success');
+                    }
+                });
+            } catch (error) {
+                showToast(`Error importing file: ${error.message}`, 'error');
+            }
+        };
+        reader.readAsText(file);
+    };
+
     window.showVersionHistory = (id) => {
-        const notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]');
-        const note = notes.find(n => n.id === id);
+        const appData = getAppData();
+        const note = appData.find(n => n.id === id);
         if (!note || !note.history || note.history.length === 0) {
             showToast('No version history for this note.', 'info');
             return;
         }
-
         const modal = document.getElementById('history-modal');
         const list = document.getElementById('history-list');
         list.innerHTML = '';
@@ -377,187 +841,152 @@
     };
     
     window.restoreVersion = (noteId, versionIndex) => {
-        const notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]');
-        const note = notes.find(n => n.id === noteId);
+        const appData = getAppData();
+        const note = appData.find(n => n.id === noteId);
         if (!note) return;
-
         const oldContent = note.content;
         const newContent = note.history[versionIndex].content;
         
-        note.history.unshift({
-            content: oldContent,
-            date: new Date().toISOString()
-        });
-        if (note.history.length > 5) {
-            note.history.pop();
-        }
-
+        note.history.unshift({ content: oldContent, date: new Date().toISOString() });
+        if (note.history.length > 5) note.history.pop();
+        
         note.content = newContent;
-        localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
-        updateNoteDisplay();
+        saveAppData(appData);
+        updateDisplay();
         document.getElementById('history-modal').classList.add('hidden');
         showToast('Version restored!', 'success');
     };
 
+    window.togglePasswordVisibility = (id) => {
+        const passwordInput = document.getElementById(`password-${id}`);
+        const button = passwordInput.parentElement.querySelector('button.text-gray-500');
+        if (passwordInput.type === 'password') {
+            passwordInput.type = 'text';
+            button.innerHTML = '<i class="fas fa-eye-slash"></i>';
+        } else {
+            passwordInput.type = 'password';
+            button.innerHTML = '<i class="fas fa-eye"></i>';
+        }
+    };
+
+    window.copyToClipboard = (id) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.select();
+        document.execCommand('copy');
+        showToast('Copied to clipboard!', 'success');
+    };
+    
+    window.generatePassword = () => {
+        const length = 16;
+        const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+~`|}{[]:;?><,./-=";
+        let password = "";
+        const randomBytes = new Uint8Array(length);
+        crypto.getRandomValues(randomBytes);
+        for (let i = 0; i < length; i++) {
+            password += charset[randomBytes[i] % charset.length];
+        }
+        document.getElementById('new-password-password').value = password;
+    };
+
+    // UI Helpers
+    function showTab(tabId) {
+        const tabs = ['notes-tab', 'passwords-tab'];
+        tabs.forEach(tab => {
+            document.getElementById(tab).classList.add('hidden');
+        });
+        document.getElementById(tabId).classList.remove('hidden');
+
+        const tabButtons = document.querySelectorAll('.tab-button');
+        tabButtons.forEach(btn => {
+            btn.classList.remove('border-b-2', 'border-purple-500', 'text-purple-600', 'dark:text-purple-400');
+            btn.classList.add('text-gray-500', 'dark:text-gray-400', 'hover:text-purple-600', 'hover:dark:text-purple-400');
+        });
+
+        document.getElementById(`${tabId}-btn`).classList.remove('text-gray-500', 'dark:text-gray-400');
+        document.getElementById(`${tabId}-btn`).classList.add('border-b-2', 'border-purple-500', 'text-purple-600', 'dark:text-purple-400');
+        
+        updateDisplay(document.getElementById('search-input').value);
+    }
+
+    function updateAllTags() {
+        const appData = getAppData();
+        allTags = new Set();
+        appData.forEach(item => {
+            if (item.tags) {
+                item.tags.forEach(tag => allTags.add(tag));
+            }
+        });
+        updateTagFilterDropdown();
+    }
+
+    function updateTagFilterDropdown() {
+        const filterDropdown = document.getElementById('filter-tags');
+        filterDropdown.innerHTML = `<option value="">All Tags</option>`;
+        allTags.forEach(tag => {
+            const option = document.createElement('option');
+            option.value = tag;
+            option.textContent = tag;
+            filterDropdown.appendChild(option);
+        });
+    }
+    
     function setupSortable() {
-        const notesContainer = document.getElementById('notes-container');
-        if (notesContainer) {
-            new Sortable(notesContainer, {
+        const containers = document.querySelectorAll('.sortable-container');
+        containers.forEach(container => {
+            if (container.classList.contains('sortable-initialized')) return;
+            new Sortable(container, {
                 animation: 150,
                 onEnd: (evt) => {
-                    const notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]');
-                    const [movedItem] = notes.splice(evt.oldIndex, 1);
-                    notes.splice(evt.newIndex, 0, movedItem);
-                    localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
-                    updateNoteDisplay();
+                    const appData = getAppData();
+                    const [movedItem] = appData.splice(evt.oldIndex, 1);
+                    appData.splice(evt.newIndex, 0, movedItem);
+                    saveAppData(appData);
+                    updateDisplay();
                 }
             });
+            container.classList.add('sortable-initialized');
+        });
+    }
+    
+    function applyTheme(isDark) {
+        const html = document.documentElement;
+        const sunIcon = document.querySelector('.dark-icon');
+        const moonIcon = document.querySelector('.light-icon');
+
+        if (isDark) {
+            html.classList.add('dark');
+            sunIcon.classList.remove('hidden');
+            moonIcon.classList.add('hidden');
+        } else {
+            html.classList.remove('dark');
+            sunIcon.classList.add('hidden');
+            moonIcon.classList.remove('hidden');
         }
+        localStorage.setItem(THEME_KEY, isDark ? 'dark' : 'light');
     }
 
-    // Check for theme on load
+    // Initial setup on load
     window.addEventListener('load', () => {
-      const savedTheme = localStorage.getItem(THEME_KEY);
-      if (savedTheme) {
-        document.documentElement.classList.remove('light', 'dark');
-        document.documentElement.classList.add(savedTheme);
-      }
-      
-      updateAllTags();
-      updateNoteDisplay();
+        const savedTheme = localStorage.getItem(THEME_KEY);
+        if (savedTheme === 'dark') {
+            applyTheme(true);
+        } else {
+            applyTheme(false);
+        }
+
+        const passwordSet = localStorage.getItem('master_password_set');
+        if (passwordSet) {
+            document.getElementById('set-password-screen').classList.add('hidden');
+            document.getElementById('auth-password-screen').classList.remove('hidden');
+        }
+
+        document.getElementById('theme-toggle').addEventListener('click', () => {
+            const currentTheme = localStorage.getItem(THEME_KEY);
+            applyTheme(currentTheme === 'light');
+        });
     });
-
-  </script>
-  
-  <style>
-    body {
-      font-family: 'Inter', sans-serif;
-      transition: background-color 0.3s ease;
-      background-color: #f3f4f6;
-    }
-    .dark body {
-      background-color: #111827;
-      color: #e5e7eb;
-    }
-    .note-card {
-        cursor: grab;
-        transition: box-shadow 0.2s, transform 0.2s;
-    }
-    .note-card:active {
-        cursor: grabbing;
-    }
-    .prose a {
-      color: #3b82f6;
-    }
-    .prose h1, .prose h2, .prose h3 {
-      font-weight: bold;
-    }
-    .ghost {
-        opacity: 0.5;
-    }
-    .sortable-chosen {
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        transform: rotate(2deg) scale(1.05);
-    }
-    .pinned-note {
-        border-left-color: #f59e0b;
-        border-left-width: 6px;
-    }
-  </style>
-</head>
-<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen p-4">
-
-  <!-- Main Container -->
-  <div class="max-w-4xl mx-auto py-8">
-    <header class="text-center mb-10">
-      <h1 class="text-4xl font-extrabold text-purple-600 dark:text-purple-400 mb-2">Note Manager</h1>
-      <p class="text-gray-500 dark:text-gray-400">Your notes, stored locally and in the cloud.</p>
-    </header>
-
-    <div id="user-info" class="text-center text-sm text-gray-500 dark:text-gray-400 mb-4 flex flex-col items-center gap-2">
-        <button id="connect-wallet-btn" onclick="connectWallet()" class="px-6 py-2 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition-colors"><i class="fas fa-wallet mr-2"></i>Connect Wallet</button>
-        <span id="wallet-status">Wallet not connected.</span>
-    </div>
-
-    <!-- Note Input Section -->
-    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl mb-8">
-      <h2 class="text-2xl font-bold mb-4 text-purple-600 dark:text-purple-400">Add New Note</h2>
-      <input type="text" id="new-note-title" placeholder="Note Title" class="w-full px-4 py-3 mb-4 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
-      <textarea id="new-note-content" placeholder="Write your note here... (supports Markdown)" rows="5" class="w-full px-4 py-3 mb-4 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500"></textarea>
-      <input type="text" id="new-note-tags" placeholder="Tags (e.g., work, ideas)" class="w-full px-4 py-3 mb-4 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
-      <button onclick="addNote()" class="w-full py-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition-colors">Add Note</button>
-    </div>
-
-    <!-- Notes Display Section -->
-    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl">
-      <div class="flex justify-between items-center mb-6 flex-wrap gap-4">
-        <h2 class="text-2xl font-bold text-purple-600 dark:text-purple-400">My Notes</h2>
-        <div class="flex space-x-2">
-            <select id="filter-tags" onchange="selectedTags = this.value ? [this.value] : []; updateNoteDisplay()" class="px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600">
-                <option value="">All Tags</option>
-            </select>
-            <input type="text" id="search-input" onkeyup="clearTimeout(searchTimeout); searchTimeout = setTimeout(() => updateNoteDisplay(this.value), 300);" placeholder="Search notes..." class="px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
-        </div>
-      </div>
-      <div id="notes-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <!-- Notes will be dynamically inserted here -->
-      </div>
-    </div>
-  </div>
-
-  <!-- Toast/Alert component -->
-  <div id="toast" class="toast fixed bottom-4 right-4 p-4 rounded-lg shadow-lg z-50 transition-transform transform translate-y-20">
-    <span id="toast-message"></span>
-  </div>
-
-  <!-- Confirmation Modal -->
-  <div id="confirmation-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
-    <div class="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl text-center w-96">
-        <h3 class="text-xl font-bold mb-4">Confirmation</h3>
-        <p id="modal-message" class="text-gray-700 dark:text-gray-300 mb-6"></p>
-        <div class="flex justify-around">
-            <button id="confirm-button" class="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">Yes</button>
-            <button id="cancel-button" class="px-6 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400">No</button>
-        </div>
-    </div>
-  </div>
-  
-  <!-- Edit Note Modal -->
-  <div id="edit-note-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
-    <div class="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-2xl">
-      <h2 class="text-2xl font-bold mb-4 text-purple-600 dark:text-purple-400">Edit Note</h2>
-      <input type="text" id="edit-title" placeholder="Note Title" class="w-full px-4 py-3 mb-4 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
-      <textarea id="edit-content" placeholder="Write your note here... (supports Markdown)" rows="10" class="w-full px-4 py-3 mb-4 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500"></textarea>
-      <input type="text" id="edit-tags" placeholder="Tags (e.g., work, ideas)" class="w-full px-4 py-3 mb-4 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500">
-      <div class="flex justify-end space-x-4">
-        <button onclick="document.getElementById('edit-note-modal').classList.add('hidden')" class="px-6 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400">Cancel</button>
-        <button id="save-edit-btn" class="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">Save Changes</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- History Modal -->
-  <div id="history-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
-      <div class="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-xl">
-          <h2 class="text-2xl font-bold mb-4 text-purple-600 dark:text-purple-400">Version History</h2>
-          <ul id="history-list" class="space-y-4"></ul>
-          <div class="flex justify-end mt-4">
-              <button onclick="document.getElementById('history-modal').classList.add('hidden')" class="px-6 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400">Close</button>
-          </div>
-      </div>
-  </div>
-
-<div class="absolute bottom-4 left-4 p-2 text-sm text-gray-500 dark:text-gray-400">
-  <span id="theme-toggle" class="cursor-pointer">
-    <i class="fas fa-sun hidden dark:inline-block"></i>
-    <i class="fas fa-moon dark:hidden"></i>
-  </span>
-</div>
-<script>
-    document.getElementById('theme-toggle').addEventListener('click', () => {
-      const isDark = document.documentElement.classList.toggle('dark');
-      localStorage.setItem(THEME_KEY, isDark ? 'dark' : 'light');
-    });
+    
 </script>
 </body>
 </html>
