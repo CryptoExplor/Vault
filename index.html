@@ -117,15 +117,17 @@
             <div class="flex justify-between items-center mb-6 flex-wrap gap-4">
                 <h2 class="text-2xl font-bold text-purple-600 dark:text-purple-400">My Notes</h2>
                 <div class="flex space-x-2 flex-wrap justify-end gap-2">
-                    <button onclick="exportAsJson()" class="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-full hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"><i class="fas fa-file-export"></i> JSON</button>
-                    <label class="cursor-pointer px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-full hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">
-                        <i class="fas fa-file-import"></i> Import
-                        <input type="file" onchange="importFromJson(event)" class="hidden">
-                    </label>
                     <select id="notes-filter-tags" onchange="selectedTags = this.value ? [this.value] : []; updateDisplay(document.getElementById('notes-search-input').value);" class="px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm">
                         <option value="">All Tags</option>
                     </select>
                     <input type="text" id="notes-search-input" onkeyup="clearTimeout(searchTimeout); searchTimeout = setTimeout(() => updateDisplay(this.value), 300);" placeholder="Search notes..." class="px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm">
+                    <button id="export-notes" class="px-4 py-2 text-sm bg-purple-500 hover:bg-purple-600 text-white rounded-full transition-colors">
+                      <i class="fas fa-file-export"></i> Export
+                    </button>
+                    <label class="cursor-pointer px-4 py-2 text-sm bg-indigo-500 hover:bg-indigo-600 text-white rounded-full transition-colors">
+                      <i class="fas fa-file-import"></i> Import
+                      <input type="file" id="import-notes-file" accept=".json" class="hidden">
+                    </label>
                 </div>
             </div>
             <div id="notes-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sortable-container">
@@ -158,6 +160,13 @@
                         <option value="">All Tags</option>
                     </select>
                     <input type="text" id="passwords-search-input" onkeyup="clearTimeout(searchTimeout); searchTimeout = setTimeout(() => updateDisplay(this.value), 300);" placeholder="Search passwords..." class="px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm">
+                    <button id="export-passwords" class="px-4 py-2 text-sm bg-purple-500 hover:bg-purple-600 text-white rounded-full transition-colors">
+                      <i class="fas fa-file-export"></i> Export
+                    </button>
+                    <label class="cursor-pointer px-4 py-2 text-sm bg-indigo-500 hover:bg-indigo-600 text-white rounded-full transition-colors">
+                      <i class="fas fa-file-import"></i> Import
+                      <input type="file" id="import-passwords-file" accept=".json" class="hidden">
+                    </label>
                 </div>
             </div>
             <div id="passwords-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sortable-container">
@@ -725,6 +734,224 @@
     }
 
     // Init
+
+    // Encrypted Password Export Function
+    async function exportPasswords() {
+        if (!masterKey) { showToast('Unlock first!', 'error'); return; }
+        const appData = getAppData();
+        const passwords = appData.filter(i => i.type === 'password');
+        if (!passwords.length) { showToast('No passwords to export!', 'error'); return; }
+
+        const encoder = new TextEncoder();
+        const data = encoder.encode(JSON.stringify(passwords));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, masterKey, data);
+        const payload = { iv: buf2b64(iv.buffer), data: buf2b64(encrypted) };
+
+        const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'passwords-encrypted.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast('Passwords exported (encrypted).', 'success');
+    }
+
+    // Encrypted Password Import Function
+    async function importPasswords(file) {
+        if (!masterKey) { showToast('Unlock first!', 'error'); return; }
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const payload = JSON.parse(e.target.result);
+                const iv = b642buf(payload.iv);
+                const encrypted = b642buf(payload.data);
+
+                const decrypted = await crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv: new Uint8Array(iv) },
+                    masterKey,
+                    encrypted
+                );
+                const decoder = new TextDecoder();
+                const passwords = JSON.parse(decoder.decode(decrypted));
+
+                const existing = getAppData();
+                const merged = [...existing, ...passwords];
+                saveAppData(merged);
+                updateDisplay();
+                showToast('Passwords imported successfully!', 'success');
+            } catch (err) {
+                console.error(err);
+                showToast('Import failed (wrong key or file)', 'error');
+            }
+        };
+        reader.readAsText(file);
+    }
+
+
+    // Optional: Granular export functions
+    window.exportPasswordsJson = () => {
+        if (!masterKey) { showToast('Unlock first!', 'error'); return; }
+        const appData = getAppData().filter(i => i.type === 'password');
+        const json = JSON.stringify(appData, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'passwords.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Passwords exported!', 'success');
+    };
+
+    window.exportNotesJson = () => {
+        if (!masterKey) { showToast('Unlock first!', 'error'); return; }
+        const appData = getAppData().filter(i => i.type === 'note');
+        const json = JSON.stringify(appData, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'notes.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Notes exported!', 'success');
+    };
+
+
+    // Event listeners for export/import buttons
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('export-passwords').addEventListener('click', exportPasswords);
+        document.getElementById('import-passwords-file').addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                importPasswords(e.target.files[0]);
+                e.target.value = ''; // reset after import
+            }
+        });
+    });
+
+    async function exportPasswords() {
+        if (!masterKey) { showToast('Unlock first!', 'error'); return; }
+        const appData = getAppData();
+        const items = appData.filter(i => i.type === 'password');
+        if (!items.length) { showToast('No passwords to export!', 'error'); return; }
+
+        const encoder = new TextEncoder();
+        const data = encoder.encode(JSON.stringify(items));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, masterKey, data);
+        const payload = { iv: buf2b64(iv.buffer), data: buf2b64(encrypted) };
+
+        const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'passwords-encrypted.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast('Passwords exported (encrypted).', 'success');
+    }
+
+    async function importPasswords(file) {
+        if (!masterKey) { showToast('Unlock first!', 'error'); return; }
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const payload = JSON.parse(e.target.result);
+                const iv = b642buf(payload.iv);
+                const encrypted = b642buf(payload.data);
+
+                const decrypted = await crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv: new Uint8Array(iv) },
+                    masterKey,
+                    encrypted
+                );
+                const decoder = new TextDecoder();
+                const items = JSON.parse(decoder.decode(decrypted));
+
+                const existing = getAppData();
+                const merged = [...existing, ...items];
+                saveAppData(merged);
+                updateDisplay();
+                showToast('Passwords imported successfully!', 'success');
+            } catch (err) {
+                console.error(err);
+                showToast('Import failed (wrong key or file)', 'error');
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    async function exportNotes() {
+        if (!masterKey) { showToast('Unlock first!', 'error'); return; }
+        const appData = getAppData();
+        const items = appData.filter(i => i.type === 'note');
+        if (!items.length) { showToast('No notes to export!', 'error'); return; }
+
+        const encoder = new TextEncoder();
+        const data = encoder.encode(JSON.stringify(items));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, masterKey, data);
+        const payload = { iv: buf2b64(iv.buffer), data: buf2b64(encrypted) };
+
+        const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'notes-encrypted.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast('Notes exported (encrypted).', 'success');
+    }
+
+    async function importNotes(file) {
+        if (!masterKey) { showToast('Unlock first!', 'error'); return; }
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const payload = JSON.parse(e.target.result);
+                const iv = b642buf(payload.iv);
+                const encrypted = b642buf(payload.data);
+
+                const decrypted = await crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv: new Uint8Array(iv) },
+                    masterKey,
+                    encrypted
+                );
+                const decoder = new TextDecoder();
+                const items = JSON.parse(decoder.decode(decrypted));
+
+                const existing = getAppData();
+                const merged = [...existing, ...items];
+                saveAppData(merged);
+                updateDisplay();
+                showToast('Notes imported successfully!', 'success');
+            } catch (err) {
+                console.error(err);
+                showToast('Import failed (wrong key or file)', 'error');
+            }
+        };
+        reader.readAsText(file);
+    }
+
+        document.getElementById('export-passwords').addEventListener('click', exportPasswords);
+        document.getElementById('import-passwords-file').addEventListener('change', e => { if (e.target.files.length) { importPasswords(e.target.files[0]); e.target.value = ''; }});
+        document.getElementById('export-notes').addEventListener('click', exportNotes);
+        document.getElementById('import-notes-file').addEventListener('change', e => { if (e.target.files.length) { importNotes(e.target.files[0]); e.target.value = ''; }});
     window.addEventListener('load', () => {
         const savedTheme = localStorage.getItem(THEME_KEY); applyTheme(savedTheme === 'dark');
         const passwordSet = localStorage.getItem('master_password_set');
